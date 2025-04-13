@@ -1,31 +1,73 @@
-from pyrogram import Client, filters
+import logging
 import asyncio
+from datetime import datetime
+from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 
-API_ID = 28620311  # Replace with your API ID
-API_HASH = "3b5c4ed0598e48fc1ab552675555e693"  # Replace with your API hash
-BOT_TOKEN = "7658143490:AAGbhmQSu9_eVq9hpjEt2DRD-iZMX8dRq04"  # Replace with your bot token
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-app = Client("test_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Configuration (fill these in)
+API_ID = 1234567                     # Your API ID from my.telegram.org
+API_HASH = 'your_api_hash_here'      # Your API HASH from my.telegram.org
+BOT_TOKEN = 'your_bot_token_here'    # Your bot token from @BotFather
 
-# Command to start the bot
-@app.on_message(filters.command("start") & filters.private)
-async def start(client, message):
-    await message.reply("Bot is running. Add me to a group as admin to begin logging bot messages.")
+# Initialize clients
+userbot = TelegramClient(StringSession(), API_ID, API_HASH)
+bot_account = TelegramClient('bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# Command to trigger scan in group
-@app.on_message(filters.command("scanbots"))
-async def scan_bot_messages(client, message):
-    chat_id = message.chat.id
-    await message.reply("Scanning for recent bot messages...")
+# Store our bot's ID
+our_bot_id = None
 
-    found = 0
-    async for msg in client.get_chat_history(chat_id, limit=100):
-        if msg.from_user and msg.from_user.is_bot:
-            found += 1
-            with open("bot_messages.txt", "a") as f:
-                f.write(f"Bot Message ID: {msg.id} | From: {msg.from_user.first_name} (ID: {msg.from_user.id})\n")
-    
-    await message.reply(f"Scan complete. Found {found} bot messages.")
+async def get_bot_id():
+    global our_bot_id
+    me = await bot_account.get_me()
+    our_bot_id = me.id
+    logger.info(f"Configured bot ID: {our_bot_id}")
 
-app.run()
+@userbot.on(events.NewMessage())
+async def message_monitor(event):
+    msg = event.message
+    if msg.sender.bot:  # Check if message is from any bot
+        try:
+            # Log message details
+            logger.info(
+                f"Bot message detected\n"
+                f"Chat ID: {event.chat_id}\n"
+                f"Sender ID: {msg.sender.id}\n"
+                f"Message: {msg.text}\n"
+                f"Time: {msg.date}\n"
+                "Scheduled for deletion in 10 seconds..."
+            )
 
+            # Wait 10 seconds before deletion
+            await asyncio.sleep(10)
+            
+            # Delete the message
+            await msg.delete()
+            logger.info(f"Message deleted successfully from chat {event.chat_id}")
+            
+            # Check if it's another bot's message and notify
+            if msg.sender.id != our_bot_id:
+                logger.info(
+                    "NOTIFICATION: Deleted message from another bot!\n"
+                    f"Bot ID: {msg.sender.id}\n"
+                    f"Chat ID: {event.chat_id}\n"
+                    f"Message time: {msg.date}"
+                )
+                
+        except Exception as e:
+            logger.error(f"Failed to delete message: {str(e)}")
+
+async def main():
+    await get_bot_id()
+    await userbot.start()
+    logger.info("Userbot started! Monitoring messages...")
+    await userbot.run_until_disconnected()
+
+if __name__ == '__main__':
+    asyncio.run(main())
